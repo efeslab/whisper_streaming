@@ -6,7 +6,9 @@ import argparse
 import os
 import logging
 import time
+import nvtx
 import numpy as np
+
 
 logger = logging.getLogger(__name__)
 parser = argparse.ArgumentParser()
@@ -212,15 +214,32 @@ class ServerProcessor:
     def process(self):
         # handle one client connection
         self.online_asr_proc.init()
+        req_count = 0
+
+        print("Pushing NVTX range 'Main'")
+        try:
+            nvtx.push_range("Main")
+            print("NVTX push successful")
+        except Exception as e:
+            print(f"NVTX push error: {e}")
+            sys.exit(1)
+
         while True:
             a = self.receive_audio_chunk()
             if a is None:
                 break
             self.online_asr_proc.insert_audio_chunk(a)
             start_time = time.time()
+            # Try using NVTX in the simplest way
+            nvtx.mark(f"[Whisper request {req_count} START]")
+            nvtx.push_range(f"client_request")
             o = online.process_iter()
+            nvtx.pop_range()
+            nvtx.mark(f"[Whisper request {req_count} END]")
             end_time = time.time()
             print(f"[{self.chunk_num}]: processing time: {end_time - start_time:.6f} seconds, start time: {start_time:.6f} seconds, end time: {end_time:.6f} seconds")
+            req_count += 1
+
             try:
                 self.send_result(o)
             except Exception as e:
@@ -229,6 +248,13 @@ class ServerProcessor:
 
 #        o = online.finish()  # this should be working
 #        self.send_result(o)
+            # End of main range
+        print("Popping Main range")
+        try:
+            nvtx.pop_range()
+            print("Main NVTX pop successful")
+        except Exception as e:
+            print(f"Main NVTX pop error: {e}")
 
 
 
