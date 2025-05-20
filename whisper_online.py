@@ -359,7 +359,85 @@ class OpenaiApiASR(ASRBase):
     def set_translate_task(self):
         self.task = "translate"
 
+class HFWhisperPipelineASR(ASRBase):
 
+    sep = ""
+
+    def load_model(self, modelsize=None, cache_dir=None, model_dir=None, hardware="gpu"):
+        import torch
+        from transformers import pipeline, AutoProcessor, WhisperTimeStampLogitsProcessor
+
+        model_dir = "/home/cc/models/whisper-large-v3-turbo"
+        # processor = AutoProcessor.from_pretrained(model_dir)
+
+        model_size_or_path = model_dir if model_dir is not None else modelsize
+        if model_size_or_path is None:
+            raise ValueError("modelsize or model_dir parameter must be set")
+
+        print(f"Using backend: HFWhisperPipelineASR with model {model_size_or_path} on {hardware}")
+
+        pipe = pipeline(
+            "automatic-speech-recognition",
+            model=model_size_or_path,
+            # tokenizer=processor.tokenizer,
+            # feature_extractor=processor.feature_extractor,
+            device="cuda:0" if hardware == "gpu" else "cpu",
+            torch_dtype=torch.float16 if hardware == "gpu" else torch.float32,
+        )
+
+        # ⚠️ New required argument: generation_config
+        # self.logits_processor = WhisperTimeStampLogitsProcessor(pipe.model.generation_config)
+
+        # # Inject the logits_processor into pipeline config
+        # pipe.model.generation_config.logits_processor = [self.logits_processor]
+
+        if self.original_language:
+            self.transcribe_kargs["language"] = self.original_language
+
+        return pipe
+
+    def transcribe(self, audio, init_prompt=""):
+        
+        outputs = self.model(
+            audio,
+            batch_size=1,
+            return_timestamps="word",
+            generate_kwargs={
+                "language": self.original_language or "en",
+                "task": "transcribe",
+                "temperature": 0.0,
+            }
+        )
+        # outputs = self.model(audio, chunk_length_s=2, batch_size=1, generate_kwargs=self.transcribe_kargs, return_timestamps="word")  #for Word-level timestamps batch-size must be 1. https://huggingface.co/openai/whisper-large-v3/discussions/12
+        #{'text': ' So as you guys...', 'chunks': [{'text': ' So', 'timestamp': (0.0, 0.64)}, {'text': ' as', 'timestamp': (0.64, 1.02)},...]}
+        segments = outputs['chunks']
+        # prev = 0.0
+        # def valid_sec(seconds):
+        #     if not(isinstance(seconds, int) or isinstance(seconds, float)):
+        #         seconds = prev
+        #     else:
+        #         prev = seconds
+        #     return seconds
+        # for segment in segments:
+        #     segment['timestamp']=(valid_sec(segment['timestamp'][0]),valid_sec(segment['timestamp'][1]))
+        return segments
+
+    def ts_words(self, segments):
+        o = []
+        for segment in segments:
+            t = (segment['timestamp'][0], segment['timestamp'][1], segment['text'])
+            o.append(t)
+        return o
+
+    def segments_end_ts(self, res):
+        return [s['timestamp'][1] for s in res]
+
+    def use_vad(self):
+        #Not implemented yet
+        return None
+
+    def set_translate_task(self):
+        self.transcribe_kargs["task"] = "translate"
 
 
 class HypothesisBuffer:
@@ -378,8 +456,15 @@ class HypothesisBuffer:
         # compare self.commited_in_buffer and new. It inserts only the words in new that extend the commited_in_buffer, it means they are roughly behind last_commited_time and new in content
         # the new tail is added to self.new
         
-        new = [(a+offset,b+offset,t) for a,b,t in new]
-        self.new = [(a,b,t) for a,b,t in new if a > self.last_commited_time-0.1]
+        # new = [(a+offset,b+offset,t) for a,b,t in new]
+        fixed = []
+        for a, b, t in new:
+            if a is None or b is None:
+                logger.warning(f"Skipping token '{t}' with invalid timestamp: ({a}, {b})")
+                continue
+            fixed.append((a + offset, b + offset, t))
+
+        self.new = [(a,b,t) for a,b,t in fixed if a > self.last_commited_time-0.1]
 
         if len(self.new) >= 1:
             a,b,t = self.new[0]
@@ -777,7 +862,7 @@ def add_shared_args(parser):
     parser.add_argument('--model_dir', type=str, default=None, help="Dir where Whisper model.bin and other files are saved. This option overrides --model and --model_cache_dir parameter.")
     parser.add_argument('--lan', '--language', type=str, default='auto', help="Source language code, e.g. en,de,cs, or 'auto' for language detection.")
     parser.add_argument('--task', type=str, default='transcribe', choices=["transcribe","translate"],help="Transcribe or translate.")
-    parser.add_argument('--backend', type=str, default="faster-whisper", choices=["faster-whisper", "whisper_timestamped", "mlx-whisper", "openai-api"],help='Load only this backend for Whisper processing.')
+    parser.add_argument('--backend', type=str, default="hf-pipeline", choices=["faster-whisper", "whisper_timestamped", "mlx-whisper", "openai-api", "hf-pipeline"],help='Load only this backend for Whisper processing.')
     parser.add_argument('--vac', action="store_true", default=False, help='Use VAC = voice activity controller. Recommended. Requires torch.')
     parser.add_argument('--vac-chunk-size', type=float, default=0.04, help='VAC sample size in seconds.')
     parser.add_argument('--vad', action="store_true", default=False, help='Use VAD = voice activity detection, with the default parameters.')
@@ -799,6 +884,8 @@ def asr_factory(args, logfile=sys.stderr):
             asr_cls = FasterWhisperASR
         elif backend == "mlx-whisper":
             asr_cls = MLXWhisper
+        elif backend == "hf-pipeline":
+            asr_cls = HFWhisperPipelineASR
         else:
             asr_cls = WhisperTimestampedASR
 
