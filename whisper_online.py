@@ -368,7 +368,7 @@ class HFWhisperPipelineASR(ASRBase):
         from transformers import pipeline, AutoProcessor, WhisperTimeStampLogitsProcessor
 
         # TODO: change to model path here
-        model_dir = "/home/cc/models/whisper-large-v3-turbo"
+        # model_dir = "/home/cc/models/whisper-large-v3-turbo"
         # processor = AutoProcessor.from_pretrained(model_dir)
 
         model_size_or_path = model_dir if model_dir is not None else modelsize
@@ -382,8 +382,11 @@ class HFWhisperPipelineASR(ASRBase):
             model=model_size_or_path,
             # tokenizer=processor.tokenizer,
             # feature_extractor=processor.feature_extractor,
-            device="cuda:0" if hardware == "gpu" else "cpu", # TODO: change to mps here
-            torch_dtype=torch.float16 if hardware == "gpu" else torch.float32,
+            # device="cuda:0" if hardware == "gpu" else "cpu", # TODO: change to mps here
+            device="mps",
+            torch_dtype=torch.float16,
+            model_kwargs={"attn_implementation": "sdpa"}
+            # torch_dtype=torch.float16 if hardware == "gpu" else torch.float32,
         )
 
         # ⚠️ New required argument: generation_config
@@ -861,7 +864,7 @@ def add_shared_args(parser):
     parser.add_argument('--model', type=str, default='large-v3-turbo', choices="tiny.en,tiny,base.en,base,small.en,small,medium.en,medium,large-v1,large-v2,large-v3,large,large-v3-turbo".split(","),help="Name size of the Whisper model to use (default: large-v2). The model is automatically downloaded from the model hub if not present in model cache dir.")
     parser.add_argument('--model_cache_dir', type=str, default=None, help="Overriding the default model cache dir where models downloaded from the hub are saved")
     parser.add_argument('--model_dir', type=str, default=None, help="Dir where Whisper model.bin and other files are saved. This option overrides --model and --model_cache_dir parameter.")
-    parser.add_argument('--lan', '--language', type=str, default='auto', help="Source language code, e.g. en,de,cs, or 'auto' for language detection.")
+    parser.add_argument('--lan', '--language', type=str, default='en', help="Source language code, e.g. en,de,cs, or 'auto' for language detection.")
     parser.add_argument('--task', type=str, default='transcribe', choices=["transcribe","translate"],help="Transcribe or translate.")
     parser.add_argument('--backend', type=str, default="hf-pipeline", choices=["faster-whisper", "whisper_timestamped", "mlx-whisper", "openai-api", "hf-pipeline"],help='Load only this backend for Whisper processing.')
     parser.add_argument('--vac', action="store_true", default=False, help='Use VAC = voice activity controller. Recommended. Requires torch.')
@@ -876,6 +879,7 @@ def asr_factory(args, logfile=sys.stderr):
     """
     Creates and configures an ASR and ASR Online instance based on the specified backend and arguments.
     """
+    size = args.model
     backend = args.backend
     if backend == "openai-api":
         logger.debug("Using OpenAI API.")
@@ -886,12 +890,13 @@ def asr_factory(args, logfile=sys.stderr):
         elif backend == "mlx-whisper":
             asr_cls = MLXWhisper
         elif backend == "hf-pipeline":
+            size = "openai/whisper-"+size
+            # size = "mlx-community/whisper-"+size
             asr_cls = HFWhisperPipelineASR
         else:
             asr_cls = WhisperTimestampedASR
 
         # Only for FasterWhisperASR and WhisperTimestampedASR
-        size = args.model
         t = time.time()
         logger.info(f"Loading Whisper {size} model for {args.lan}...")
         asr = asr_cls(modelsize=size, lan=args.lan, cache_dir=args.model_cache_dir, model_dir=args.model_dir, hardware=args.device)
