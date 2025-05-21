@@ -368,22 +368,22 @@ class HFWhisperPipelineASR(ASRBase):
         from transformers import pipeline, AutoProcessor, WhisperTimeStampLogitsProcessor
 
         # TODO: change to model path here
-        # model_dir = "/home/cc/models/whisper-large-v3-turbo"
+        model_dir = "/home/cc/models/whisper-large-v3-turbo"
         # processor = AutoProcessor.from_pretrained(model_dir)
 
         model_size_or_path = model_dir if model_dir is not None else modelsize
         if model_size_or_path is None:
             raise ValueError("modelsize or model_dir parameter must be set")
 
-        print(f"Using backend: HFWhisperPipelineASR with model {model_size_or_path} on {hardware}")
+        logger.info(f"Using backend: HFWhisperPipelineASR with model {model_size_or_path} on {hardware}")
 
         pipe = pipeline(
             "automatic-speech-recognition",
             model=model_size_or_path,
             # tokenizer=processor.tokenizer,
             # feature_extractor=processor.feature_extractor,
-            # device="cuda:0" if hardware == "gpu" else "cpu", # TODO: change to mps here
-            device="mps",
+            device="cuda:0" if hardware == "gpu" else "cpu", # TODO: change to mps here
+            # device="mps",
             torch_dtype=torch.float16,
             model_kwargs={"attn_implementation": "sdpa"}
             # torch_dtype=torch.float16 if hardware == "gpu" else torch.float32,
