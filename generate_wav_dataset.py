@@ -1,6 +1,9 @@
 import numpy as np
 import soundfile as sf
 from datasets import load_dataset
+import os
+
+repo_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 def numpy_to_wav(audio_data, output_filename, sampling_rate=16000):
     """
@@ -42,7 +45,7 @@ def main():
     print(f"Loaded {total_items} audio files from dataset")
     
     # Process all files
-    output_dir = "/home/cc/datasets/whisper-earnings21"
+    output_dir = f"{repo_dir}/applications/LiveCaptions/whisper-earnings21"
     import os
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
