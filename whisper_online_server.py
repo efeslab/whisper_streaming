@@ -59,7 +59,7 @@ class Connection:
     '''it wraps conn object'''
     # TODO: change packet size to align with chunk interval
     # do 4 seconds of audio
-    PACKET_SIZE = 4*SAMPLING_RATE*2 # 2 seconds of audio, 16 bit, mono
+    PACKET_SIZE = 4*SAMPLING_RATE*2 # 4 seconds of audio, 16 bit, mono
 
     def __init__(self, conn):
         self.conn = conn
